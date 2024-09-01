@@ -1,7 +1,5 @@
 'use strict';
 
-import * as WEColor from 'WEColor';
-
 // 97 Color Palettes
 const colorPalettes1 = [ //Bright 15
     { name: "Summer Sorbet",         colors: ["#de324c","#f4895f","#f8e16f","#95cf92","#369acc","#9656a2"] },
@@ -138,9 +136,7 @@ export var scriptProperties = createScriptProperties()
 const colorPalettes = [colorPalettes1, colorPalettes2, colorPalettes3, colorPalettes4];
 let activePalettes = [];
 let currentPaletteIndex = 0;
-let lastClickTime = 0;
 let lastChange;
-const debounceTime = 200; // milliseconds
 
 // Previous script properties for change detection
 let prevUsePalettes1 = scriptProperties.usePalettes1;
@@ -148,11 +144,29 @@ let prevUsePalettes2 = scriptProperties.usePalettes2;
 let prevUsePalettes3 = scriptProperties.usePalettes3;
 let prevUsePalettes4 = scriptProperties.usePalettes4;
 
-// Function to convert hex to Vec3
-const hexToVec3 = hex => {
-    const bigint = parseInt(hex.slice(1), 16);
-    return new Vec3(((bigint >> 16) & 255) / 255, ((bigint >> 8) & 255) / 255, (bigint & 255) / 255);
-};
+export function init(value) {
+    const currentDate = new Date();
+    lastChange = localStorage.get("lastChange") ? new Date(localStorage.get("lastChange")) : currentDate;
+
+    // Initialize active palettes
+    initializeActivePalettes();
+
+    // Attempt to load the palette from storage
+    const loadedSuccessfully = loadPaletteFromStorage();
+
+    // Pick a random palette if loading from storage failed
+    if (!loadedSuccessfully) {
+        currentPaletteIndex = 0; // Start from the first palette
+        pickNewPalette();
+    } else {
+        console.log("Loaded palette from storage successfully.");
+    }
+
+    // Validate settings after ensuring palette is loaded
+    validateAutoChangeSettings();
+
+    return value;
+}
 
 // Function to initialize active palettes based on user selection
 const initializeActivePalettes = () => {
@@ -165,89 +179,10 @@ const initializeActivePalettes = () => {
 
     if (!activePalettes.length) {
         console.log("No color palettes are enabled.");
+    } else {
+        currentPaletteIndex = 0; // Reset index to the first palette when reinitializing
     }
 };
-
-// Function to refresh active palettes based on user selection
-const refreshActivePalettes = () => {
-    initializeActivePalettes();
-    pickNewPalette(currentPaletteIndex);
-};
-
-// Function to set shared palette colors, log the palette, and update shared value
-const setSharedPaletteColors = palette => {
-    const colorVecs = palette.colors.map(hexToVec3);
-    shared.paletteColor1 = colorVecs[0];
-    shared.paletteColor2 = colorVecs[1];
-    shared.paletteColor3 = colorVecs[2];
-    shared.paletteColor4 = colorVecs[3];
-    shared.paletteColor5 = colorVecs[4];
-    shared.paletteColor6 = colorVecs[5];
-    shared.paletteName = palette.name;
-    console.log("Current palette:", palette.name);
-};
-
-// Function to pick a new palette and update shared values
-const pickNewPalette = (index = null) => {
-    if (!activePalettes.length) {
-        console.log("No color palettes are enabled.");
-        return;
-    }
-
-    const palette = (index !== null && index < activePalettes.length)
-        ? activePalettes[index]
-        : activePalettes[Math.floor(Math.random() * activePalettes.length)];
-
-    setSharedPaletteColors(palette);
-    currentPaletteIndex = (index !== null) ? index : activePalettes.indexOf(palette);
-
-    // Save the palette to local storage
-        localStorage.set('lastPalette', JSON.stringify(palette));
-        localStorage.set('lastPaletteIndex', currentPaletteIndex);
-        console.log("Palette saved to local storage.");
-};
-
-function shouldChangePalette() {
-    const currentDate = new Date();
-    let nextChange, newTimespanType;
-
-    if (scriptProperties.timespanDays) { // Set nextChange based on days
-        newTimespanType = 1;
-        lastChange.setHours(0, 0, 0, 0); // Reset to start of the day
-        nextChange = new Date(lastChange.getTime() + 8.64e7 * scriptProperties.changeTimespan);
-    } else if (scriptProperties.timespanHours) { // Set nextChange based on hours
-        newTimespanType = 2;
-        lastChange.setMinutes(0, 0, 0); // Reset to start of the hour
-        nextChange = new Date(lastChange.getTime() + 3.6e6 * scriptProperties.changeTimespan);
-    } else if (scriptProperties.timespanMins) { // Set nextChange based on minutes
-        newTimespanType = 3;
-        lastChange.setSeconds(0, 0); // Reset to start of the minute
-        nextChange = new Date(lastChange.getTime() + 6e4 * scriptProperties.changeTimespan);
-    }
-
-    if ((currentDate > nextChange && scriptProperties.changeTimespan > 0) || localStorage.get("timespanType") != newTimespanType) {
-    localStorage.set("timespanType", newTimespanType);
-        lastChange = currentDate;
-        localStorage.set("lastChange", lastChange.toISOString());
-        return true;
-    }
-    return false;
-}
-
-// Function to validate automatic change settings
-function validateAutoChangeSettings() {
-    const autoChangeSettings = [
-        scriptProperties.timespanDays,
-        scriptProperties.timespanHours,
-        scriptProperties.timespanMins
-    ];
-
-    const activeSettingsCount = autoChangeSettings.filter(setting => setting).length;
-
-    if (activeSettingsCount > 1) {
-        console.error("More than one auto-change mode is active. Please select only one or none at all.");
-    }
-}
 
 export function update(value) {
     // Check if palette selection properties have changed
@@ -264,48 +199,101 @@ export function update(value) {
         validateAutoChangeSettings();
     }
 
-    // Auto-change palette based on selected mode
+    handleSharedValueSwitch();
+
     if (shouldChangePalette()) {
-        currentPaletteIndex = (currentPaletteIndex + 1) % activePalettes.length;
-        pickNewPalette(currentPaletteIndex);
+        shared.next = true;
     }
 }
 
-export function cursorClick(event) {
-    // Ignore clicks if this layer is not visible or debounce time has not passed
-    const currentTime = Date.now();
-    if (!thisLayer.visible || currentTime - lastClickTime < debounceTime) {
+// Function to set shared palette colors, log the palette, and update shared value
+const setSharedPaletteColors = (palette) => {
+    const colorVecs = palette.colors.map(hexToVec3);
+    
+    // Loop over the available colors
+    for (let i = 0; i < colorVecs.length; i++) {
+        shared[`paletteColor${i + 1}`] = colorVecs[i]; // Assign the color to the corresponding shared property
+    }
+    
+    // Clear unused palette slots
+    for (let i = colorVecs.length; i < 5; i++) {
+        shared[`paletteColor${i + 1}`] = null; // Set unused colors to null
+    }
+    
+    shared.paletteName = palette.name;
+    console.log("Current palette:", palette.name);
+};
+
+function shouldChangePalette() {
+    const currentDate = new Date();
+    let nextChange;
+
+    if (scriptProperties.timespanDays) {
+        lastChange.setHours(0, 0, 0, 0); // Reset to start of the day
+        nextChange = new Date(lastChange.getTime() + 8.64e7 * scriptProperties.changeTimespan);
+    } else if (scriptProperties.timespanHours) {
+        lastChange.setMinutes(0, 0, 0); // Reset to start of the hour
+        nextChange = new Date(lastChange.getTime() + 3.6e6 * scriptProperties.changeTimespan);
+    } else if (scriptProperties.timespanMins) {
+        lastChange.setSeconds(0, 0); // Reset to start of the minute
+        nextChange = new Date(lastChange.getTime() + 6e4 * scriptProperties.changeTimespan);
+    } else {
+        return false; // No valid timespan set, so no automatic change
+    }
+
+    if (currentDate >= nextChange && scriptProperties.changeTimespan > 0) {
+        lastChange = currentDate;
+        localStorage.set("lastChange", lastChange.toISOString());
+        shared.next = true;
+        return true;
+    }
+
+    return false;
+}
+
+// Function to pick a palette and update shared values
+const pickNewPalette = () => {
+    if (!activePalettes.length) {
+        console.log("No color palettes are enabled.");
         return;
     }
 
-    lastClickTime = currentTime;
+    const palette = activePalettes[currentPaletteIndex];
 
-    // Pick the next palette on click
-    currentPaletteIndex = (currentPaletteIndex + 1) % activePalettes.length;
-    pickNewPalette(currentPaletteIndex);
+    setSharedPaletteColors(palette);
+
+    // Save the palette index to local storage
+    localStorage.set('lastPalette', JSON.stringify(palette));
+    localStorage.set('lastPaletteIndex', currentPaletteIndex);
+};
+
+// Function to validate automatic change settings
+function validateAutoChangeSettings() {
+    const autoChangeSettings = [
+        scriptProperties.timespanDays,
+        scriptProperties.timespanHours,
+        scriptProperties.timespanMins
+    ];
+
+    const activeSettingsCount = autoChangeSettings.filter(setting => setting).length;
+
+    if (activeSettingsCount > 1) {
+        console.error("More than one auto-change mode is active. Please select only one or none at all.");
+    }
 }
 
-export function init(value) {
-    const currentDate = new Date();
-    lastChange = localStorage.get("lastChange") ? new Date(localStorage.get("lastChange")) : currentDate;
-    
-    // Initialize active palettes but do not pick one yet
-    initializeActivePalettes();
-
-    // Attempt to load the palette from storage
-    const loadedSuccessfully = loadPaletteFromStorage();
-
-    // Only pick a new palette if loading from storage failed
-    if (!loadedSuccessfully) {
+function handleSharedValueSwitch() {
+    if (shared.next) {
+        currentPaletteIndex = (currentPaletteIndex + 1) % activePalettes.length;
+        shared.next = false;  // Reset the shared value
         pickNewPalette();
-    } else {
-        console.log("Loaded palette from storage successfully.");
     }
 
-    // Validate settings after ensuring palette is loaded
-    validateAutoChangeSettings();
-
-    return value;
+    if (shared.previous) {
+        currentPaletteIndex = (currentPaletteIndex - 1 + activePalettes.length) % activePalettes.length;
+        shared.previous = false;  // Reset the shared value
+        pickNewPalette();
+    }
 }
 
 function loadPaletteFromStorage() {
@@ -313,15 +301,22 @@ function loadPaletteFromStorage() {
     const savedPaletteIndex = localStorage.get('lastPaletteIndex', 'LOCATION_GLOBAL');
 
     if (savedPalette && savedPaletteIndex !== null) {
-        try {
-            const palette = JSON.parse(savedPalette);
-            setSharedPaletteColors(palette);
-            currentPaletteIndex = parseInt(savedPaletteIndex, 10);
-            console.log("Palette loaded:", palette.name);
-            return true;
-        } catch (error) {
-            console.error("Error parsing saved palette:", error);
-        }
+        const palette = JSON.parse(savedPalette);
+        setSharedPaletteColors(palette);
+        currentPaletteIndex = parseInt(savedPaletteIndex, 10);
+        return true;
     }
     return false;
 }
+
+// Function to refresh active palettes based on user selection
+const refreshActivePalettes = () => {
+    initializeActivePalettes();
+    pickNewPalette();
+};
+
+// Function to convert hex to Vec3
+const hexToVec3 = hex => {
+    const bigint = parseInt(hex.slice(1), 16);
+    return new Vec3(((bigint >> 16) & 255) / 255, ((bigint >> 8) & 255) / 255, (bigint & 255) / 255);
+};
