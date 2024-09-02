@@ -16,7 +16,7 @@ export var scriptProperties = createScriptProperties()
     .addColor({
         name: 'fallbackColor',
         label: 'Custom Color',
-        value: new Vec3(1, 1, 1) // Default to white color
+        value: new Vec3(1, 1, 1)
     })
     .addSlider({
         name: 'transitionDuration',
@@ -28,41 +28,27 @@ export var scriptProperties = createScriptProperties()
     })
     .finish();
 
-// Transition variables
 let newColor = new Vec3(0, 0, 0);
 let oldColor = new Vec3(0, 0, 0);
 let timer = 0;
 let previousSharedValue = null;
 
-/**
- * Helper function to determine the current target color
- * @return {Vec3} - the current target color
- */
 function getCurrentTargetColor() {
     // Use fallback color if the flag is set; otherwise, use the shared color
     return scriptProperties.useFallbackColor ? scriptProperties.fallbackColor : (shared[scriptProperties.sharedValueName] || scriptProperties.fallbackColor);
 }
 
-/**
- * Initialize the script with the current color
- * @param {Vec3} value - initial color value
- * @return {Vec3} - the initial color to start with
- */
 export function init(value) {
     // Fetch the initial color directly from shared value or fallback
     newColor = getCurrentTargetColor();
     oldColor = newColor;
-    timer = scriptProperties.transitionDuration; // Timer indicates transition completion
+    timer = scriptProperties.transitionDuration;
     previousSharedValue = scriptProperties.useFallbackColor ? scriptProperties.fallbackColor : shared[scriptProperties.sharedValueName];
-    return newColor; // Directly apply the initial color
+    return newColor;
 }
 
-/**
- * @param {Vec3} value - for property 'color'
- * @return {Vec3} - updated current property value
- */
 export function update(value) {
-    const transitionDuration = scriptProperties.transitionDuration; // Cache for performance
+    const transitionDuration = scriptProperties.transitionDuration;
 
     // Determine the current source value based on the fallback flag
     const currentSharedValue = scriptProperties.useFallbackColor ? scriptProperties.fallbackColor : shared[scriptProperties.sharedValueName];
@@ -75,13 +61,12 @@ export function update(value) {
         newColor = getCurrentTargetColor();
     }
 
-    // Perform smooth transition logic if needed
     if (timer < transitionDuration) {
         const ratio = timer / transitionDuration;
         value = newColor.subtract(oldColor).multiply(ratio).add(oldColor);
         timer += engine.frametime;
     } else {
-        value = newColor; // Set to the final color after transition
+        value = newColor;
     }
 
     return value;
