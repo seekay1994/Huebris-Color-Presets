@@ -1,6 +1,6 @@
 'use strict';
 
-import * as WEColor from 'WEColor';
+import * as WEMath from 'WEMath';
 
 export var scriptProperties = createScriptProperties()
     .addText({
@@ -30,44 +30,46 @@ export var scriptProperties = createScriptProperties()
 
 let newColor = new Vec3(0, 0, 0);
 let oldColor = new Vec3(0, 0, 0);
+let currentColor = new Vec3(0, 0, 0);
 let timer = 0;
 let previousSharedValue = null;
 
 function getCurrentTargetColor() {
-    // Use fallback color if the flag is set; otherwise, use the shared color
     return scriptProperties.useFallbackColor ? scriptProperties.fallbackColor : (shared[scriptProperties.sharedValueName] || scriptProperties.fallbackColor);
 }
 
+function isVec3Equal(vecA, vecB) {
+    return vecA.x === vecB.x && vecA.y === vecB.y && vecA.z === vecB.z;
+}
+
 export function init(value) {
-    // Fetch the initial color directly from shared value or fallback
     newColor = getCurrentTargetColor();
     oldColor = newColor;
+    currentColor = newColor;
     timer = scriptProperties.transitionDuration;
-    previousSharedValue = scriptProperties.useFallbackColor ? scriptProperties.fallbackColor : shared[scriptProperties.sharedValueName];
+    previousSharedValue = newColor;
     return newColor;
 }
 
+
 export function update(value) {
     const transitionDuration = scriptProperties.transitionDuration;
+    const currentSharedValue = getCurrentTargetColor();
 
-    // Determine the current source value based on the fallback flag
-    const currentSharedValue = scriptProperties.useFallbackColor ? scriptProperties.fallbackColor : shared[scriptProperties.sharedValueName];
-
-    // Check for a change in the shared or fallback value
-    if (currentSharedValue !== previousSharedValue) {
+    if (!isVec3Equal(currentSharedValue, previousSharedValue)) {
         previousSharedValue = currentSharedValue;
+        oldColor = currentColor;
+        newColor = currentSharedValue;
         timer = 0;
-        oldColor = newColor;
-        newColor = getCurrentTargetColor();
     }
 
     if (timer < transitionDuration) {
-        const ratio = timer / transitionDuration;
-        value = newColor.subtract(oldColor).multiply(ratio).add(oldColor);
+        const ratio = WEMath.mix(0, 1, timer / transitionDuration);
+        currentColor = oldColor.multiply(1 - ratio).add(newColor.multiply(ratio));
         timer += engine.frametime;
     } else {
-        value = newColor;
+        currentColor = newColor;
     }
 
-    return value;
+    return currentColor;
 }
